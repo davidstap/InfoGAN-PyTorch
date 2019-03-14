@@ -7,9 +7,9 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import time
 import random
+from PIL import Image
 
 from models.mnist_model import Generator, Discriminator, DHead, QHead
-from dataloader import get_data
 from utils import *
 from config import params
 
@@ -18,6 +18,9 @@ if(params['dataset'] == 'MNIST'):
 elif(params['dataset'] == 'SVHN'):
     from models.svhn_model import Generator, Discriminator, DHead, QHead
 elif(params['dataset'] == 'CelebA'):
+    from models.celeba_model import Generator, Discriminator, DHead, QHead
+elif(params['dataset'] == 'CUB'):
+    # Same architecture as CelebA
     from models.celeba_model import Generator, Discriminator, DHead, QHead
 elif(params['dataset'] == 'FashionMNIST'):
     from models.mnist_model import Generator, Discriminator, DHead, QHead
@@ -32,7 +35,16 @@ print("Random Seed: ", seed)
 device = torch.device("cuda:0" if(torch.cuda.is_available()) else "cpu")
 print(device, " will be used.\n")
 
-dataloader = get_data(params['dataset'], params['batch_size'])
+if params['dataset'] == 'CelebA':
+    from dataset import datasetBBox
+    data = datasetBBox(dir='data/CelebA/', img_dir='img_align_celeba/')
+    dataloader = torch.utils.data.DataLoader(data,
+                                            batch_size=params['batch_size'],
+                                            shuffle=True)
+
+else:
+    from dataloader import get_data
+    dataloader = get_data(params['dataset'], params['batch_size'])
 
 # Set appropriate hyperparameters depending on the dataset used.
 # The values given in the InfoGAN paper are used.
@@ -55,6 +67,11 @@ elif(params['dataset'] == 'CelebA'):
     params['num_dis_c'] = 10
     params['dis_c_dim'] = 10
     params['num_con_c'] = 0
+elif(params['dataset'] == 'CUB'):
+    params['num_z'] = 128
+    params['num_dis_c'] = 10
+    params['dis_c_dim'] = 10
+    params['num_con_c'] = 0
 elif(params['dataset'] == 'FashionMNIST'):
     params['num_z'] = 62
     params['num_dis_c'] = 1
@@ -62,11 +79,16 @@ elif(params['dataset'] == 'FashionMNIST'):
     params['num_con_c'] = 2
 
 # Plot the training images.
-sample_batch = next(iter(dataloader))
+if params['dataset'] == 'CelebA':
+    sample_batch = next(iter(dataloader))
+else:
+    sample_batch = next(iter(dataloader))[0]
+
 plt.figure(figsize=(10, 10))
 plt.axis("off")
+
 plt.imshow(np.transpose(vutils.make_grid(
-    sample_batch[0].to(device)[ : 100], nrow=10, padding=2, normalize=True).cpu(), (1, 2, 0)))
+    sample_batch.to(device)[ : 100], nrow=10, padding=2, normalize=True).cpu(), (1, 2, 0)))
 plt.savefig('Training Images {}'.format(params['dataset']))
 plt.close('all')
 
@@ -131,10 +153,16 @@ print("-"*25)
 start_time = time.time()
 iters = 0
 
+
+
+
+
 for epoch in range(params['num_epochs']):
     epoch_start_time = time.time()
 
-    for i, (data, _) in enumerate(dataloader, 0):
+    # for i, (data, _) in enumerate(dataloader, 0):
+    for i, data in enumerate(dataloader):
+
         # Get batch size
         b_size = data.size(0)
         # Transfer data tensor to GPU/CPU (device)
@@ -154,6 +182,7 @@ for epoch in range(params['num_epochs']):
         label.fill_(fake_label)
         noise, idx = noise_sample(params['num_dis_c'], params['dis_c_dim'], params['num_con_c'], params['num_z'], b_size, device)
         fake_data = netG(noise)
+
         output2 = discriminator(fake_data.detach())
         probs_fake = netD(output2).view(-1)
         loss_fake = criterionD(probs_fake, label)
@@ -196,7 +225,7 @@ for epoch in range(params['num_epochs']):
         # Check progress of training.
         if i != 0 and i%100 == 0:
             print('[%d/%d][%d/%d]\tLoss_D: %.4f\tLoss_G: %.4f'
-                  % (epoch+1, params['num_epochs'], i, len(dataloader), 
+                  % (epoch+1, params['num_epochs'], i, len(dataloader),
                     D_loss.item(), G_loss.item()))
 
         # Save the losses for plotting.
@@ -213,14 +242,22 @@ for epoch in range(params['num_epochs']):
     img_list.append(vutils.make_grid(gen_data, nrow=10, padding=2, normalize=True))
 
     # Generate image to check performance of generator.
-    if((epoch+1) == 1 or (epoch+1) == params['num_epochs']/2):
-        with torch.no_grad():
-            gen_data = netG(fixed_noise).detach().cpu()
-        plt.figure(figsize=(10, 10))
-        plt.axis("off")
-        plt.imshow(np.transpose(vutils.make_grid(gen_data, nrow=10, padding=2, normalize=True), (1,2,0)))
-        plt.savefig("Epoch_%d {}".format(params['dataset']) %(epoch+1))
-        plt.close('all')
+    # if((epoch+1) == 1 or (epoch+1) == params['num_epochs']/2):
+    with torch.no_grad():
+        gen_data = netG(fixed_noise).detach().cpu()
+    plt.figure(figsize=(10, 10))
+    plt.axis("off")
+    plt.imshow(np.transpose(vutils.make_grid(gen_data, nrow=10, padding=2, normalize=True), (1,2,0)))
+    plt.savefig("Epoch_%d {}".format(params['dataset']) %(epoch+1))
+    plt.close('all')
+
+
+    im = vutils.make_grid(gen_data, nrow=10).numpy()
+    im = (im + 1.0) * 127.5
+    im = im.astype(np.uint8)
+    im = np.transpose(im, (1, 2, 0))
+    im = Image.fromarray(im)
+    im.save("Epoch_{}_numpy.png".format(epoch+1))
 
     # Save network weights.
     if (epoch+1) % params['save_epoch'] == 0:
