@@ -26,7 +26,15 @@ class Generator(nn.Module):
         x = F.relu(self.bn2(self.tconv2(x)))
         x = F.relu(self.bn3(self.tconv3(x)))
 
-        img = torch.sigmoid(self.tconv4(x))
+        img = torch.tanh(self.tconv4(x))
+
+
+
+        conv3x3(ngf, 3)
+        nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1,
+                     padding=1, bias=False)
+
+        nn.Tanh
 
         return img
 
