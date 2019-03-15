@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision.utils as vutils
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import time
@@ -20,8 +22,8 @@ elif(params['dataset'] == 'SVHN'):
 elif(params['dataset'] == 'CelebA'):
     from models.celeba_model import Generator, Discriminator, DHead, QHead
 elif(params['dataset'] == 'CUB'):
-    # Same architecture as CelebA
-    from models.celeba_model import Generator, Discriminator, DHead, QHead
+    #TODO: Same architecture as CelebA?
+    from models.cub_model import Generator, Discriminator, DHead, QHead
 elif(params['dataset'] == 'FashionMNIST'):
     from models.mnist_model import Generator, Discriminator, DHead, QHead
 
@@ -36,11 +38,14 @@ device = torch.device("cuda:0" if(torch.cuda.is_available()) else "cpu")
 print(device, " will be used.\n")
 
 if params['dataset'] == 'CelebA':
-    from dataset import datasetBBox
-    data = datasetBBox(dir='data/CelebA/', img_dir='img_align_celeba/')
-    dataloader = torch.utils.data.DataLoader(data,
-                                            batch_size=params['batch_size'],
-                                            shuffle=True)
+    from dataset import DatasetCelebA
+    data = DatasetCelebA(dir='data/CelebA/', img_dir='img_align_celeba/')
+    dataloader = torch.utils.data.DataLoader(data, batch_size=params['batch_size'], shuffle=True)
+
+elif params['dataset'] == 'CUB':
+    from dataset import DatasetCUB
+    data = DatasetCUB(dir='../attnInfoGAN/data/birds/CUB_200_2011/', img_dir='images/')
+    dataloader = torch.utils.data.DataLoader(data, batch_size=params['batch_size'], shuffle=True)
 
 else:
     from dataloader import get_data
@@ -68,7 +73,7 @@ elif(params['dataset'] == 'CelebA'):
     params['dis_c_dim'] = 10
     params['num_con_c'] = 0
 elif(params['dataset'] == 'CUB'):
-    params['num_z'] = 128
+    params['num_z'] = 100
     params['num_dis_c'] = 10
     params['dis_c_dim'] = 10
     params['num_con_c'] = 0
@@ -79,7 +84,7 @@ elif(params['dataset'] == 'FashionMNIST'):
     params['num_con_c'] = 2
 
 # Plot the training images.
-if params['dataset'] == 'CelebA':
+if params['dataset'] in ['CelebA', 'CUB']:
     sample_batch = next(iter(dataloader))
 else:
     sample_batch = next(iter(dataloader))[0]
@@ -162,7 +167,7 @@ for epoch in range(params['num_epochs']):
 
     # for i, (data, _) in enumerate(dataloader, 0):
     for i, data in enumerate(dataloader):
-
+                
         # Get batch size
         b_size = data.size(0)
         # Transfer data tensor to GPU/CPU (device)
@@ -223,7 +228,7 @@ for epoch in range(params['num_epochs']):
         optimG.step()
 
         # Check progress of training.
-        if i != 0 and i%100 == 0:
+        if i != 0 and i%50 == 0:
             print('[%d/%d][%d/%d]\tLoss_D: %.4f\tLoss_G: %.4f'
                   % (epoch+1, params['num_epochs'], i, len(dataloader),
                     D_loss.item(), G_loss.item()))
@@ -233,6 +238,19 @@ for epoch in range(params['num_epochs']):
         D_losses.append(D_loss.item())
 
         iters += 1
+        
+        
+        torch.save({
+            'netG' : netG.state_dict(),
+            'discriminator' : discriminator.state_dict(),
+            'netD' : netD.state_dict(),
+            'netQ' : netQ.state_dict(),
+            'optimD' : optimD.state_dict(),
+            'optimG' : optimG.state_dict(),
+            'params' : params
+            }, 'checkpoint/model_epoch_%d_{}'.format(params['dataset']) %(epoch+1))
+        
+        
 
     epoch_time = time.time() - epoch_start_time
     print("Time taken for Epoch %d: %.2fs" %(epoch + 1, epoch_time))
@@ -251,13 +269,6 @@ for epoch in range(params['num_epochs']):
     plt.savefig("Epoch_%d {}".format(params['dataset']) %(epoch+1))
     plt.close('all')
 
-
-    im = vutils.make_grid(gen_data, nrow=10).numpy()
-    im = (im + 1.0) * 127.5
-    im = im.astype(np.uint8)
-    im = np.transpose(im, (1, 2, 0))
-    im = Image.fromarray(im)
-    im.save("Epoch_{}_numpy.png".format(epoch+1))
 
     # Save network weights.
     if (epoch+1) % params['save_epoch'] == 0:
